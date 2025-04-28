@@ -69,9 +69,15 @@ for zipfile in "$SUBM_DIR"/*.zip; do
   [ -e "$zipfile" ] || { echo "No .zip files in $SUBM_DIR"; break; }
 
   filename=$(basename "$zipfile")
-  student_name="${filename%%_*}"
-  student_id="${filename##*_}"
-  student_id="${student_id%.zip}"
+  student_name="${filename%%_*}" # %%_* means "delete everything from the first underscore to the end"
+  student_id="${filename##*_}" # ##*_ means "delete everything from the beginning up to the last underscore"
+  student_id="${student_id%.zip}" # % is another parameter expansion that removes the shortest matching pattern from the end
+
+  ## Debug Info
+  # $VERBOSE && echo "Zipfile Name: $zipfile"
+  # $VERBOSE && echo "File Name: $filename"
+  # $VERBOSE && echo "Student Name: $student_name"
+  # $VERBOSE && echo "Student Id: $student_id"
 
   # $VERBOSE && echo
   # $VERBOSE && echo "=== Processing $student_name ($student_id) ==="
@@ -135,7 +141,7 @@ for zipfile in "$SUBM_DIR"/*.zip; do
   if [ "$CALC_FC" = true ]; then
     case "$lang" in
       C|C++)
-        fc=$(grep -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\([^)]*\)[[:space:]]*\{' \
+        fc=$(grep -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]+[[:space:]]+[A-Za-z_][A-Za-z0-9_]+[[:space:]]*\([^)]*\)[[:space:]]*\{' \
               "$source_file" | wc -l)
         ;;
       Java)
