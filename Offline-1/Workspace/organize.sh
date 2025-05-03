@@ -6,7 +6,7 @@ usage() {
   exit 1
 }
 
-# 1. Check mandatory args
+# Check mandatory args
 if [ $# -lt 4 ]; then
   echo "Error: too few arguments."
   usage
@@ -19,26 +19,40 @@ ANS_DIR="$4"       # answers/
 
 shift 4 
 
-# 2. Default optional flags
+# Default optional flags
 VERBOSE=false
 NOEXECUTE=false
 CALC_LC=true
 CALC_CC=true
 CALC_FC=true
 
-# 3. Parse optional flags
+
+# Parse optional flags
 for optional_arg in "$@"; do
   case "$optional_arg" in
-    -v)            VERBOSE=true ;;
-    -noexecute)    NOEXECUTE=true ;;
-    -nolc)         CALC_LC=false ;;
-    -nocc)         CALC_CC=false ;;
-    -nofc)         CALC_FC=false ;;
-    *) echo "Unknown option: $optional_arg"; usage ;;
+    -v)            
+      VERBOSE=true 
+    ;;
+    -noexecute)    
+      NOEXECUTE=true 
+    ;;
+    -nolc)         
+      CALC_LC=false 
+    ;;
+    -nocc)         
+      CALC_CC=false 
+    ;;
+    -nofc)         
+      CALC_FC=false 
+    ;;
+    *) # Base case 
+      echo "Unknown option: $optional_arg"; 
+        usage 
+      ;;
   esac
 done
 
-# 4. Debug print if verbose
+# Debug print if verbose
 # if [ "$VERBOSE" = true ]; then
 #   echo ">> submissions: $SUBM_DIR"
 #   echo ">> targets:     $TARGET_DIR"
@@ -51,10 +65,10 @@ done
 #   echo ">> calc_fc:     $CALC_FC"
 # fi
 
-# 5. Task A: create language directories under targets
+### ===Task A: Organize===
 mkdir -p "$TARGET_DIR"/{C,C++,Python,Java}
 
-# 6. Task B.0: write CSV header (once)
+# CSV header
 header="student_id,student_name,language"
 if [ "$NOEXECUTE" != true ]; then
   header+=",matched,not_matched"
@@ -64,7 +78,7 @@ $CALC_CC && header+=",comment_count"
 $CALC_FC && header+=",function_count"
 echo "$header" > "$TARGET_DIR/result.csv"
 
-# 7. Main loop: process each student ZIP
+# process each student ZIP
 for zipfile in "$SUBM_DIR"/*.zip; do
   [ -e "$zipfile" ] || { echo "No .zip files in $SUBM_DIR"; break; }
 
@@ -83,11 +97,11 @@ for zipfile in "$SUBM_DIR"/*.zip; do
   # $VERBOSE && echo "=== Processing $student_name ($student_id) ==="
   $VERBOSE && echo "Processing files of $student_id"
 
-  # 7.a Unzip into temp
+  # Unzip into temp
   tmpdir=$(mktemp -d) || { echo "ERROR: cannot create temp dir"; exit 1; }
   unzip -q "$zipfile" -d "$tmpdir"
 
-  # 7.b Find the single code file (recursive)
+  # Find the single code file (recursive)
   codefile=$(find "$tmpdir" -type f \
     \( -iname '*.c' -o -iname '*.cpp' -o -iname '*.java' -o -iname '*.py' \) \
     | sort | head -n1)
@@ -99,7 +113,7 @@ for zipfile in "$SUBM_DIR"/*.zip; do
   fi
   # $VERBOSE && echo " Found code: $codefile"
 
-  # 7.c Determine language & target name
+  # Determine language & target name
   case "${codefile,,}" in
     *.c)    lang="C";     target_name="main.c"   ;;
     *.cpp)  lang="C++";   target_name="main.cpp" ;;
@@ -107,7 +121,7 @@ for zipfile in "$SUBM_DIR"/*.zip; do
     *.py)   lang="Python";target_name="main.py";;
   esac
 
-  # 7.d Copy into targets/{Lang}/{ID}/
+  # Copy into targets/{Lang}/{ID}/
   dest="$TARGET_DIR/$lang/$student_id"
   mkdir -p "$dest"
   cp "$codefile" "$dest/$target_name"
@@ -115,9 +129,7 @@ for zipfile in "$SUBM_DIR"/*.zip; do
 
   rm -rf "$tmpdir"
 
-  #
-  # 7.e Task B.1: Compute code metrics
-  #
+  ### ===Task B: Code Analysis===
   source_file="$dest/$target_name"
 
   if [ "$CALC_LC" = true ]; then
@@ -126,30 +138,29 @@ for zipfile in "$SUBM_DIR"/*.zip; do
     lc=""
   fi
 
+  # Comment Count
   if [ "$CALC_CC" = true ]; then
+    # Using sed to strip out string literals, first remove all inside double quotation or single quotation and then count the // or # marks (once in a line so multiple spanning will not affect the count)
     if [ "$lang" = "Python" ]; then
-      # count any line with a '#' anywhere
-      cc=$(grep -c '#' "$source_file")
+      cc=$(sed -E 's/"([^"\\]|\\.)*"//g; s/'"'"'([^'"'"'\]|\\.)*'"'"'//g' "$source_file" | grep -c '#')
     else
-      # count any line with '//' anywhere (inline or full-line)
-      cc=$(grep -c '//' "$source_file")
+      cc=$(sed -E 's/"([^"\\]|\\.)*"//g; s/'"'"'([^'"'"'\]|\\.)*'"'"'//g' "$source_file" | grep -c '//')
     fi
   else
     cc=""
   fi
 
+  # Function Count
   if [ "$CALC_FC" = true ]; then
     case "$lang" in
       C|C++)
-        fc=$(grep -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]+[[:space:]]+[A-Za-z_][A-Za-z0-9_]+[[:space:]]*\([^)]*\)[[:space:]]*\{' \
-              "$source_file" | wc -l)
+          fc=$(grep -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]+[[:space:]]+[A-Za-z_][A-Za-z0-9_]+[[:space:]]*\([^)]*\)[[:space:]]*\{' "$source_file" | wc -l)
         ;;
       Java)
-        fc=$(grep -E '^[[:space:]]*([A-Za-z_$][A-Za-z0-9_$<>]*[[:space:]]+)+[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*\([^)]*\)[[:space:]]*\{' \
-              "$source_file" | wc -l)
+          fc=$(grep -E '^[[:space:]]*([A-Za-z_$][A-Za-z0-9_$<>]*[[:space:]]+)+[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*\([^)]*\)[[:space:]]*\{' "$source_file" | wc -l)
         ;;
       Python)
-        fc=$(grep -c '^[[:space:]]*def ' "$source_file")
+          fc=$(grep -c '^[[:space:]]*def ' "$source_file")
         ;;
     esac
   else
@@ -158,9 +169,7 @@ for zipfile in "$SUBM_DIR"/*.zip; do
 
   # $VERBOSE && echo " Metrics → lines:$lc  comments:$cc  functions:$fc"
 
-  #
-  # 7.f Task C: compile, run tests, diff
-  #
+  ### ===Task C: Execute and Match===
   matched=0
   not_matched=0
 
@@ -170,19 +179,19 @@ for zipfile in "$SUBM_DIR"/*.zip; do
     # compile / set execute command
     case "$lang" in
       C)
-        gcc "$source_file" -o "$dest/main.out"
-        exe="$dest/main.out"
+          gcc "$source_file" -o "$dest/main.out"
+          exe="$dest/main.out"
         ;;
       "C++")
-        g++ "$source_file" -o "$dest/main.out"
-        exe="$dest/main.out"
+          g++ "$source_file" -o "$dest/main.out"
+          exe="$dest/main.out"
         ;;
       Java)
-        javac -d "$dest" "$dest/Main.java"
-        exe="java -cp $dest Main"
+          javac -d "$dest" "$dest/Main.java"
+          exe="java -cp $dest Main"
         ;;
       Python)
-        exe="python3 $dest/main.py"
+          exe="python3 $dest/main.py"
         ;;
     esac
 
@@ -207,9 +216,7 @@ for zipfile in "$SUBM_DIR"/*.zip; do
     # $VERBOSE && echo "  Results → matched:$matched  not_matched:$not_matched"
   fi
 
-  #
-  # 7.g Append this student’s row to CSV
-  #
+  # Append this student’s row to CSV
   row="$student_id,\"$student_name\",$lang"
   [ "$NOEXECUTE" = false ] && row+=",${matched},${not_matched}"
   [ "$CALC_LC"    = true ] && row+=",${lc}"
@@ -221,3 +228,6 @@ for zipfile in "$SUBM_DIR"/*.zip; do
 done
 
 $VERBOSE && echo "All submissions processed successfully."
+
+# Kill the script 
+# kill -INT $$
