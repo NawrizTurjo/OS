@@ -6,6 +6,8 @@
 # copies those with more than <min_pages> pages into ./filtered_pdfs/,
 # then renames them 1.pdf, 2.pdf … in ascending file-size order.
 
+rm -d filtered_pdfs 2>/dev/null || true
+
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -19,6 +21,7 @@ min_pages=$1
 # 2) Ensure pdfinfo is installed (part of poppler-utils)
 if ! command -v pdfinfo &> /dev/null; then
   echo "Error: 'pdfinfo' not found. Install poppler-utils."
+  echo " Run: sudo apt install poppler-utils"
   exit 1
 fi
 
