@@ -1,0 +1,3 @@
+Total files scanned: 28
+Duplicates found: 11
+Space saved: 808 bytes
