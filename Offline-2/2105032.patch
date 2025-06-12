@@ -93,7 +93,7 @@ index f0d3171..0f2da13 100644
      kvminithart();   // turn on paging
      procinit();      // process table
 diff --git a/kernel/param.h b/kernel/param.h
-index 80ec6d3..4dcc722 100644
+index 80ec6d3..224c8e9 100644
 --- a/kernel/param.h
 +++ b/kernel/param.h
 @@ -13,3 +13,11 @@
@@ -106,8 +106,8 @@ index 80ec6d3..4dcc722 100644
 +#define BOOST_INTERVAL          64      // ticks before priority boost
 +#define NSYSCALL                25      // number of system calls
 +
-+#define PRINT_SHCEDULING        1       // for printing the debugging information
-+#define EXTRA_LOGGING           1       // moreee logging
++#define PRINT_SHCEDULING        0       // for printing the debugging information
++#define EXTRA_LOGGING           0       // moreee logging
 \ No newline at end of file
 diff --git a/kernel/proc.c b/kernel/proc.c
 index 130d9ce..2162d08 100644
