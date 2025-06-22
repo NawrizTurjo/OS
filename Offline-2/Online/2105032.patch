@@ -1,0 +1,184 @@
+diff --git a/.vscode/settings.json b/.vscode/settings.json
+new file mode 100644
+index 0000000..4b952f6
+--- /dev/null
++++ b/.vscode/settings.json
+@@ -0,0 +1,5 @@
++{
++    "files.associations": {
++        "freq.h": "c"
++    }
++}
+\ No newline at end of file
+diff --git a/2105032.patch b/2105032.patch
+new file mode 100644
+index 0000000..e69de29
+diff --git a/Makefile b/Makefile
+index 62fd0f8..6a15bd6 100644
+--- a/Makefile
++++ b/Makefile
+@@ -139,6 +139,7 @@ UPROGS=\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
++	$U/_freqall\
+ 
+ fs.img: mkfs/mkfs README $(UPROGS)
+ 	mkfs/mkfs fs.img README $(UPROGS)
+diff --git a/kernel/freq.h b/kernel/freq.h
+new file mode 100644
+index 0000000..acb6c49
+--- /dev/null
++++ b/kernel/freq.h
+@@ -0,0 +1,3 @@
++struct freq_array {
++    int counts[128]; // frequency counts for ASCII chars 0 to 127
++};
+\ No newline at end of file
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index ed65409..d2c0bfe 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -101,6 +101,7 @@ extern uint64 sys_unlink(void);
+ extern uint64 sys_link(void);
+ extern uint64 sys_mkdir(void);
+ extern uint64 sys_close(void);
++extern uint64 sys_countFreq(void);
+ 
+ // An array mapping syscall numbers from syscall.h
+ // to the function that handles the system call.
+@@ -126,6 +127,7 @@ static uint64 (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_countFreq]   sys_countFreq,
+ };
+ 
+ void
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index bc5f356..f088fe5 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,3 +20,4 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_countFreq  22
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3b4d5bd..42cf6de 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -5,7 +5,7 @@
+ #include "memlayout.h"
+ #include "spinlock.h"
+ #include "proc.h"
+-
++#include "freq.h"
+ uint64
+ sys_exit(void)
+ {
+@@ -91,3 +91,37 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++
++uint64
++sys_countFreq(void)
++{
++  char str[128];
++  // argstr(0, str, sizeof(str));
++  uint64 add;
++  argaddr(0,&add);
++  copyin(myproc()->pagetable,str,add,128);
++
++  uint64 addr;
++  argaddr(1, &addr);
++
++  // int freq[128];
++  struct freq_array freq;
++  printf("Target string %s\n", str);
++
++  for(int i=0;i<128;i++)
++  {
++    freq.counts[i]=0;
++  }
++
++  for(int i=0;str[i]!='\0';i++)
++  {
++    freq.counts[(int)str[i]]++;
++  }
++
++  if(copyout(myproc()->pagetable,addr,(char *)&freq,sizeof (freq))<0)
++    return -1;
++  return 0;
++
++
++  return 0;
++}
+\ No newline at end of file
+diff --git a/user/freqall.c b/user/freqall.c
+new file mode 100644
+index 0000000..2794b32
+--- /dev/null
++++ b/user/freqall.c
+@@ -0,0 +1,36 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++// #include "kernel/printf.c"
++
++int
++main(int argc, char *argv[])
++{
++  if(argc != 2){
++    printf("Usage: duummy<Command>\n");
++    return 1;
++  }
++  
++  struct freq_array freq;
++
++  char *str = argv[1];
++
++  countFreq(str, &freq);
++
++  int arr[128]={0};
++
++  
++  for(int i=0;str[i]!='\0';i++)
++  {
++    if(arr[(int)str[i]]==0)
++    {char s[2];
++    s[0]=str[i];
++    s[1]='\0';
++    printf("%s",s);
++    printf(": %d\n",freq.counts[(int)str[i]]);
++    arr[(int)str[i]]=1;}
++  }
++
++  
++  return 0;
++}
+diff --git a/user/user.h b/user/user.h
+index 04013ca..0c7f2df 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -1,3 +1,4 @@
++#include "kernel/freq.h"
+ struct stat;
+ 
+ // system calls
+@@ -39,3 +40,5 @@ void free(void*);
+ int atoi(const char*);
+ int memcmp(const void *, const void *, uint);
+ void *memcpy(void *, const void *, uint);
++
++int countFreq(char *str,struct freq_array *);
+diff --git a/user/usys.pl b/user/usys.pl
+index 01e426e..b8d8b23 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -36,3 +36,4 @@ entry("getpid");
+ entry("sbrk");
+ entry("sleep");
+ entry("uptime");
++entry("countFreq");
