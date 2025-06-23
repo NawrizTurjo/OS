@@ -5,3 +5,6 @@ gitcommit.sh
 Raw/
 
 # xv6-riscv/
+
+*.in
+*.out

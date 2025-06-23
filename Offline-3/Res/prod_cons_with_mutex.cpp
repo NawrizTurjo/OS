@@ -2,11 +2,12 @@
 #include<pthread.h>
 #include<semaphore.h>
 #include<queue>
+#include<unistd.h>
 using namespace std;
 
 
 //semaphore to control sleep and wake up
-sem_t empty;
+sem_t empty_sem;
 sem_t full;
 queue<int> q;
 pthread_mutex_t lock;
@@ -14,7 +15,7 @@ pthread_mutex_t lock;
 
 void init_semaphore()
 {
-	sem_init(&empty,0,5);
+	sem_init(&empty_sem,0,5);
 	sem_init(&full,0,0);
 	pthread_mutex_init(&lock,0);
 }
@@ -25,7 +26,7 @@ void * ProducerFunc(void * arg)
 	int i;
 	for(i=1;i<=10;i++)
 	{
-		sem_wait(&empty);
+		sem_wait(&empty_sem);
 
 		pthread_mutex_lock(&lock);		
 		sleep(1);	
@@ -55,7 +56,7 @@ void * ConsumerFunc(void * arg)
 
 		pthread_mutex_unlock(&lock);
 		
-		sem_post(&empty);
+		sem_post(&empty_sem);
 	}
 }
 

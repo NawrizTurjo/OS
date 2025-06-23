@@ -111,9 +111,11 @@ void write_output(std::string output) {
 void start_printing(Student *student) {
   student->state = WAITING_FOR_PRINTING;
 
+  // pthread_mutex_lock(&output_lock);
   write_output("Student " + std::to_string(student->id) +
                " has arrived at the print station at " +
                std::to_string(get_time()) + " ms\n");
+  // pthread_mutex_unlock(&output_lock);
 }
 
 /**
@@ -147,7 +149,9 @@ void *student_activities(void *arg) {
 
   usleep((get_random_number() % WALKING_TO_PRINTER + 1) *
          SLEEP_MULTIPLIER); // Simulate walking to printer
+  // pthread_mutex_lock(&output_lock);
   start_printing(student);  // Student reaches the printing station
+  // pthread_mutex_unlock(&output_lock);
 
   return NULL;
 }
