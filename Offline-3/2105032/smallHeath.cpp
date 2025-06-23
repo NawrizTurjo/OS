@@ -77,7 +77,7 @@ public:
                   << ", Is Leader: " << (isLeader ? "Yes" : "No") << std::endl;
     }
 };
-std::vector<Operative> operatives; // Vector to store all operatives
+std::vector<Operative> operatives; 
 
 // # Intelligent Staff class --- Task 2
 class IntelligentStaff
@@ -87,7 +87,7 @@ public:
 
     IntelligentStaff(int id) : id(id) {}
 };
-std::vector<IntelligentStaff> staffs; // Vector to store intelligent staff
+std::vector<IntelligentStaff> staffs; 
 
 void readerLock()
 {
@@ -196,7 +196,7 @@ void *intelligentStaffsWork(void *arg)
 
     while (completedTasks < N / M)
     {
-        usleep(1000);
+        usleep(STAFF_MULTIPLIER * get_random_number());
         readerLock();
         write_output("Intelligence Staff " + std::to_string(staff->id) + " began reviewing logbook at time " + std::to_string(get_time()) + ". Operations completed = " + std::to_string(completedTasks));
         readerUnlock();
@@ -209,19 +209,23 @@ void *operativesWork(void *arg)
     Operative *operative = (Operative *)arg;
 
     std::string TS = "";
+    std::string UNIT = "";
+    std::string LEADER = "";
     if (EXTRA_LOGGING)
     {
         TS = "(TS" + to_string(operative->stationNum) + ") ";
+        UNIT = " (Unit " + std::to_string(operative->unitNum) + ")";
+        LEADER = (operative->isLeader) ? " (Leader)" : "";
     }
 
     usleep(get_random_number() * OPERATIVE_MULTIPLIER);
 
-    write_output("Operative " + std::to_string(operative->identifier) + " has arrived at typewriting station " + TS + "at time " + std::to_string(get_time()));
+    write_output("Operative " + std::to_string(operative->identifier) + UNIT + LEADER + " has arrived at typewriting station " + TS + "at time " + std::to_string(get_time()));
 
-    sem_wait(&stationSemaphores[operative->stationNum - 1]); // Wait for the station semaphore
-    usleep(x * 1000);                                        // x milliseconds
-    write_output("Operative " + std::to_string(operative->identifier) + " has completed document recreation " + TS + "at time " + std::to_string(get_time()));
-    sem_post(&stationSemaphores[operative->stationNum - 1]); // Release the station semaphore
+    sem_wait(&stationSemaphores[operative->stationNum - 1]);
+    usleep(x * 1000);
+    write_output("Operative " + std::to_string(operative->identifier) + UNIT + LEADER + " has completed document recreation " + TS + "at time " + std::to_string(get_time()));
+    sem_post(&stationSemaphores[operative->stationNum - 1]);
 
     // # Leader part
     sem_post(&groupSemaphores[operative->unitNum - 1]); // Signal the group semaphore
@@ -232,7 +236,7 @@ void *operativesWork(void *arg)
     {
         for (int i = 0; i < M; i++)
         {
-            sem_wait(&groupSemaphores[operative->unitNum - 1]); // Wait for all operatives in the group
+            sem_wait(&groupSemaphores[operative->unitNum - 1]);
         }
 
         writerLock();
@@ -255,17 +259,17 @@ void cleanup()
 {
     for (int i = 0; i < 4; i++)
     {
-        sem_destroy(&stationSemaphores[i]); // Destroy each station semaphore
+        sem_destroy(&stationSemaphores[i]);
     }
 
     for (int i = 0; i < N / M; i++)
     {
-        sem_destroy(&groupSemaphores[i]); // Destroy each group semaphore
+        sem_destroy(&groupSemaphores[i]);
     }
 
-    pthread_mutex_destroy(&output_lock); // Destroy output mutex lock
-    pthread_mutex_destroy(&readCntLock); // Destroy read count mutex lock
-    sem_destroy(&writeSemaphore);        // Destroy write semaphore
+    pthread_mutex_destroy(&output_lock);
+    pthread_mutex_destroy(&readCntLock);
+    sem_destroy(&writeSemaphore);
 }
 
 int main(int argc, char *argv[])
@@ -285,8 +289,8 @@ int main(int argc, char *argv[])
     std::streambuf *coutBuffer = std::cout.rdbuf(); // Save original cout buffer
     std::cout.rdbuf(outputFile.rdbuf());            // Redirect cout to output file
 
-    std::cin >> N >> M; // Read N and M from input file
-    std::cin >> x >> y; // Read x and y from input file
+    std::cin >> N >> M;
+    std::cin >> x >> y;
 
     if (N % M != 0)
     {
