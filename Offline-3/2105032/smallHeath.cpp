@@ -14,20 +14,35 @@ using namespace std;
 #define CIH_TIME 1250
 #define EXTRA_LOGGING 1
 
-// Timing functions
-auto start_time = std::chrono::high_resolution_clock::now();
+#define mutexLock pthread_mutex_lock
+#define mutexUnlock pthread_mutex_unlock
+#define newThread pthread_create
+#define joinThread pthread_join
+#define semWait sem_wait
+#define semPost sem_post
+#define semInit sem_init
+#define semDestroy sem_destroy
+#define eb emplace_back
+#define semaPhore sem_t
+#define pThread pthread_t
+#define pMutex pthread_mutex_t
+#define mutexInit pthread_mutex_init
+#define mutexDestroy pthread_mutex_destroy
 
-long long get_time()
+// Timing functions
+auto startTime = std::chrono::high_resolution_clock::now();
+
+long long getTime()
 {
-    auto end_time = std::chrono::high_resolution_clock::now();
+    auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        end_time - start_time);
-    long long elapsed_time_ms = duration.count();
-    return elapsed_time_ms;
+        endTime - startTime);
+    long long elapsedTimeMs = duration.count();
+    return elapsedTimeMs;
 }
 
 // Function to generate a Poisson-distributed random number
-int get_random_number()
+int getRandomNumber()
 {
     std::random_device rd;
     std::mt19937 generator(rd());
@@ -45,12 +60,12 @@ int stationCnt = 4;
 int numStaffs = 2;
 int readCnt = 0;
 int completedTasks = 0;
-pthread_mutex_t readCntLock; // Mutex lock for read count
-sem_t writeSemaphore;
+pMutex readCntLock; // Mutex lock for read count
+semaPhore writeSemaphore;
 
-std::vector<sem_t> stationSemaphores; // Semaphore for each station
-std::vector<sem_t> groupSemaphores;
-pthread_mutex_t output_lock;
+std::vector<semaPhore> stationSemaphores; // Semaphore for each station
+std::vector<semaPhore> groupSemaphores;
+pMutex outputLock;
 
 // # Operative class --- Task 1
 class Operative
@@ -91,51 +106,51 @@ std::vector<IntelligentStaff> staffs;
 
 void readerLock()
 {
-    pthread_mutex_lock(&readCntLock);
+    mutexLock(&readCntLock);
 
     readCnt++;
     if (readCnt == 1)
     {
         // This is the first reader, lock the writers
-        sem_wait(&writeSemaphore);
+        semWait(&writeSemaphore);
     }
 
-    pthread_mutex_unlock(&readCntLock);
+    mutexUnlock(&readCntLock);
 }
 
 void readerUnlock()
 {
-    pthread_mutex_lock(&readCntLock);
+    mutexLock(&readCntLock);
 
     readCnt--;
     if (readCnt == 0)
     {
         // This is the last reader, unlock the writers
-        sem_post(&writeSemaphore);
+        semPost(&writeSemaphore);
     }
 
-    pthread_mutex_unlock(&readCntLock);
+    mutexUnlock(&readCntLock);
 }
 
 void writerLock()
 {
     // wait all other writers
-    sem_wait(&writeSemaphore);
+    semWait(&writeSemaphore);
 }
 
 void writerUnlock()
 {
     // signal as done
-    sem_post(&writeSemaphore);
+    semPost(&writeSemaphore);
 }
 
 void initStationSemaphores()
 {
     for (int i = 0; i < stationCnt; i++)
     {
-        sem_t sem;
-        sem_init(&sem, 0, 1);
-        stationSemaphores.push_back(sem);
+        semaPhore sem;
+        semInit(&sem, 0, 1);
+        stationSemaphores.eb(sem);
     }
 }
 
@@ -144,42 +159,42 @@ void initGroupSemaphores()
     int groupCnt = N / M;
     for (int i = 0; i < groupCnt; i++)
     {
-        sem_t sem;
-        sem_init(&sem, 0, 0);
-        groupSemaphores.push_back(sem);
+        semaPhore sem;
+        semInit(&sem, 0, 0);
+        groupSemaphores.eb(sem);
     }
 }
 
 void initMutex()
 {
-    pthread_mutex_init(&output_lock, NULL);
-    pthread_mutex_init(&readCntLock, NULL);
+    mutexInit(&outputLock, NULL);
+    mutexInit(&readCntLock, NULL);
 }
 
 void initWriteSemaphore()
 {
-    sem_init(&writeSemaphore, 0, 1);
+    semInit(&writeSemaphore, 0, 1);
 }
 
 // uses mutex lock to write output to avoid interleaving
-void write_output(std::string output)
+void writeOutput(std::string output)
 {
-    pthread_mutex_lock(&output_lock);
+    mutexLock(&outputLock);
     std::cout << output << std::endl;
     // usleep(10000); // Sleep for 1 ms to simulate some delay in output
-    pthread_mutex_unlock(&output_lock);
+    mutexUnlock(&outputLock);
 }
 
 void initialize()
 {
     for (int i = 1; i <= N; i++)
     {
-        operatives.emplace_back(Operative(i));
+        operatives.eb(Operative(i));
     }
 
     for (int i = 0; i < numStaffs; i++)
     {
-        staffs.emplace_back(IntelligentStaff(i + 1));
+        staffs.eb(IntelligentStaff(i + 1));
     }
 
     initStationSemaphores();
@@ -187,7 +202,7 @@ void initialize()
     initMutex();
     initWriteSemaphore();
 
-    start_time = std::chrono::high_resolution_clock::now();
+    startTime = std::chrono::high_resolution_clock::now();
 }
 
 void *intelligentStaffsWork(void *arg)
@@ -196,9 +211,9 @@ void *intelligentStaffsWork(void *arg)
 
     while (completedTasks < N / M)
     {
-        usleep(STAFF_MULTIPLIER * get_random_number());
+        usleep(STAFF_MULTIPLIER * getRandomNumber());
         readerLock();
-        write_output("Intelligence Staff " + std::to_string(staff->id) + " began reviewing logbook at time " + std::to_string(get_time()) + ". Operations completed = " + std::to_string(completedTasks));
+        writeOutput("Intelligence Staff " + std::to_string(staff->id) + " began reviewing logbook at time " + std::to_string(getTime()) + ". Operations completed = " + std::to_string(completedTasks));
         readerUnlock();
     }
     return NULL;
@@ -218,17 +233,17 @@ void *operativesWork(void *arg)
         LEADER = (operative->isLeader) ? " (Leader)" : "";
     }
 
-    usleep(get_random_number() * OPERATIVE_MULTIPLIER);
+    usleep(getRandomNumber() * OPERATIVE_MULTIPLIER);
 
-    write_output("Operative " + std::to_string(operative->identifier) + UNIT + LEADER + " has arrived at typewriting station " + TS + "at time " + std::to_string(get_time()));
+    writeOutput("Operative " + std::to_string(operative->identifier) + UNIT + LEADER + " has arrived at typewriting station " + TS + "at time " + std::to_string(getTime()));
 
-    sem_wait(&stationSemaphores[operative->stationNum - 1]);
+    semWait(&stationSemaphores[operative->stationNum - 1]);
     usleep(x * 1000);
-    write_output("Operative " + std::to_string(operative->identifier) + UNIT + LEADER + " has completed document recreation " + TS + "at time " + std::to_string(get_time()));
-    sem_post(&stationSemaphores[operative->stationNum - 1]);
+    writeOutput("Operative " + std::to_string(operative->identifier) + UNIT + LEADER + " has completed document recreation " + TS + "at time " + std::to_string(getTime()));
+    semPost(&stationSemaphores[operative->stationNum - 1]);
 
     // # Leader part
-    sem_post(&groupSemaphores[operative->unitNum - 1]); // Signal the group semaphore
+    semPost(&groupSemaphores[operative->unitNum - 1]); // Signal the group semaphore
     // usleep(CIH_TIME);                                   // some delay to simulate the time to go to the TS to CIH
 
     // # This portion will be written into the logbook, so we need reader-writer locks
@@ -242,12 +257,12 @@ void *operativesWork(void *arg)
         writerLock();
 
         // ! ekhn shob operative e kaaj kore felse, so logbook e write kora jabe
-        write_output("Unit " + std::to_string(operative->unitNum) + " has completed document recreation phase at time " + std::to_string(get_time()));
+        writeOutput("Unit " + std::to_string(operative->unitNum) + " has completed document recreation phase at time " + std::to_string(getTime()));
 
         usleep(y * 1000); // y milliseconds
         completedTasks++;
 
-        write_output("Unit " + std::to_string(operative->unitNum) + " has completed intelligence distribution at time " + std::to_string(get_time()));
+        writeOutput("Unit " + std::to_string(operative->unitNum) + " has completed intelligence distribution at time " + std::to_string(getTime()));
 
         writerUnlock();
     }
@@ -259,17 +274,17 @@ void cleanup()
 {
     for (int i = 0; i < 4; i++)
     {
-        sem_destroy(&stationSemaphores[i]);
+        semDestroy(&stationSemaphores[i]);
     }
 
     for (int i = 0; i < N / M; i++)
     {
-        sem_destroy(&groupSemaphores[i]);
+        semDestroy(&groupSemaphores[i]);
     }
 
-    pthread_mutex_destroy(&output_lock);
-    pthread_mutex_destroy(&readCntLock);
-    sem_destroy(&writeSemaphore);
+    mutexDestroy(&outputLock);
+    mutexDestroy(&readCntLock);
+    semDestroy(&writeSemaphore);
 }
 
 int main(int argc, char *argv[])
@@ -278,6 +293,13 @@ int main(int argc, char *argv[])
     {
         std::cerr << "Usage: ./a.out <input_file> <output_file>" << std::endl;
         return 0;
+    }
+    
+    // check for intput file existence
+    if(!std::ifstream(argv[1]))
+    {
+        std::cerr << "Error: Input file does not exist." << std::endl;
+        return 1;
     }
 
     // File handling for input and output redirection
@@ -319,23 +341,23 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < N; i++)
     {
-        pthread_create(&operativesThreads[i], NULL, operativesWork, &operatives[i]);
+        newThread(&operativesThreads[i], NULL, operativesWork, &operatives[i]);
     }
     pthread_t staffsThreads[numStaffs];
 
     for (int i = 0; i < numStaffs; i++)
     {
-        pthread_create(&staffsThreads[i], NULL, intelligentStaffsWork, (void *)&staffs[i]);
+        newThread(&staffsThreads[i], NULL, intelligentStaffsWork, (void *)&staffs[i]);
     }
 
     for (int i = 0; i < N; i++)
     {
-        pthread_join(operativesThreads[i], NULL);
+        joinThread(operativesThreads[i], NULL);
     }
 
     for (int i = 0; i < numStaffs; i++)
     {
-        pthread_join(staffsThreads[i], NULL);
+        joinThread(staffsThreads[i], NULL);
     }
 
     cleanup();
