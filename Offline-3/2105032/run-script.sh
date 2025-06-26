@@ -1,3 +1,3 @@
-g++ -pthread smallHeath.cpp -o smallHeath
-./smallHeath data.in data.out
-rm -rf smallHeath
+g++ -pthread 2105032.cpp -o 2105032
+./2105032 data.in data.out
+rm -rf 2105032

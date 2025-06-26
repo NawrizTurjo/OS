@@ -63,7 +63,7 @@ int numStaffs = 2;
 int readCnt = 0;
 int completedTasks = 0;
 pMutex sharedLock;         // Mutex lock for read count
-pMutex completedTasksLock; // Mutex lock for completed tasks
+// pMutex completedTasksLock; // Mutex lock for completed tasks
 
 semaPhore writerQ, readerQ;
 bool isWriting = false;
@@ -116,10 +116,10 @@ void readerLock()
     mutexLock(&sharedLock);
 
     waitingReaders++;
-    if (isWriting)
+    while (isWriting)
     {
         mutexUnlock(&sharedLock);
-        semWait(&readerQ);
+        semWait(&readerQ); // (1)
         mutexLock(&sharedLock);
     }
 
@@ -127,12 +127,13 @@ void readerLock()
     readCnt++;
     waitingReaders--;
     // signal other readers if any, allowing them to access simultaneously
-    if(LOCKING_LOGGING)
-        writeOutput("Reader lock acquired. Current read count: " + to_string(readCnt) + ", Waiting readers: " + to_string(waitingReaders)+ ", Waiting writers: " + to_string(waitingWriters));
-    if (waitingReaders > 0 && !isWriting)
-    {
-        semPost(&readerQ);
-    }
+    if (LOCKING_LOGGING)
+        writeOutput("Reader lock acquired. Current read count: " + to_string(readCnt) + ", Waiting readers: " + to_string(waitingReaders) + ", Waiting writers: " + to_string(waitingWriters));
+    // if (waitingReaders > 0 && !isWriting)
+    // {
+    //     semPost(&readerQ);
+    //     // (1) e jara ache tader ber korbe
+    // }
 
     mutexUnlock(&sharedLock);
 }
@@ -142,12 +143,13 @@ void readerUnlock()
     mutexLock(&sharedLock);
 
     readCnt--;
-    if(LOCKING_LOGGING)
+    if (LOCKING_LOGGING)
         writeOutput("Reader lock released. Current read count: " + to_string(readCnt) + ", Waiting readers: " + to_string(waitingReaders) + ", Waiting writers: " + to_string(waitingWriters));
 
     if (readCnt == 0 && waitingWriters > 0)
     {
         semPost(&writerQ); // no readers left, but waiting writers, so allow them in writer Q
+        // (2) e jara ache tader ber korbe
     }
 
     mutexUnlock(&sharedLock);
@@ -161,16 +163,16 @@ void writerLock()
 
     // some are reading or already another writer is writing
     // wait them
-    if (readCnt > 0 || isWriting)
+    while (readCnt > 0 || isWriting)
     {
         mutexUnlock(&sharedLock);
-        semWait(&writerQ);
+        semWait(&writerQ);  // (2)
         mutexLock(&sharedLock);
     }
     isWriting = true;
     waitingWriters--;
-    if(LOCKING_LOGGING)
-        writeOutput("Writer lock acquired. Waiting writers: " + to_string(waitingWriters)+ ", Waiting readers: " + to_string(waitingReaders)+ ", Current read count: " + to_string(readCnt));
+    if (LOCKING_LOGGING)
+        writeOutput("Writer lock acquired. Waiting writers: " + to_string(waitingWriters) + ", Waiting readers: " + to_string(waitingReaders) + ", Current read count: " + to_string(readCnt));
 
     // no extra condition so we are not prioritizing writers over readers
 
@@ -182,15 +184,16 @@ void writerUnlock()
     mutexLock(&sharedLock);
 
     isWriting = false;
-    if(LOCKING_LOGGING)
-        writeOutput("Writer lock released. Waiting readers: " + to_string(waitingReaders) + ", Waiting writers: " + to_string(waitingWriters)+ ", Current read count: " + to_string(readCnt));
+    if (LOCKING_LOGGING)
+        writeOutput("Writer lock released. Waiting readers: " + to_string(waitingReaders) + ", Waiting writers: " + to_string(waitingWriters) + ", Current read count: " + to_string(readCnt));
     if (waitingReaders > 0)
     {
-        semPost(&readerQ);
+        for(int i=0;i<waitingReaders;i++)
+            semPost(&readerQ); // (1) er readerQ theke waiting gulake aage nibe
     }
     else if (waitingWriters > 0)
     {
-        semPost(&writerQ);
+        semPost(&writerQ); // then (2) er waiting writer gulake ber korbe (if any)
     }
 
     mutexUnlock(&sharedLock);
@@ -221,6 +224,7 @@ void initMutex()
 {
     mutexInit(&outputLock, NULL);
     mutexInit(&sharedLock, NULL);
+    // mutexInit(&completedTasksLock, NULL);
 }
 
 void initWriteSemaphore()
@@ -327,11 +331,11 @@ void *operativesWork(void *arg)
         writeOutput("Unit " + to_string(operative->unitNum) + " has completed document recreation phase at time " + to_string(getTime()));
 
         usleep(y * 1000); // y milliseconds
-        mutexLock(&completedTasksLock);
+        // mutexLock(&completedTasksLock);
 
         completedTasks++;
 
-        mutexUnlock(&completedTasksLock);
+        // mutexUnlock(&completedTasksLock);
 
         writeOutput("Unit " + to_string(operative->unitNum) + " has completed intelligence distribution at time " + to_string(getTime()));
 
@@ -407,19 +411,20 @@ int main(int argc, char *argv[])
     //     o.printDetails(); // Print details of each operative
     // }
 
-    pthread_t operativesThreads[N];
-
+    
     initialize();
-
-    for (int i = 0; i < N; i++)
-    {
-        newThread(&operativesThreads[i], NULL, operativesWork, &operatives[i]);
-    }
-    pthread_t staffsThreads[numStaffs];
+    
+    vector<pThread> operativesThreads(N);
+    vector<pThread> staffsThreads(numStaffs);
 
     for (int i = 0; i < numStaffs; i++)
     {
         newThread(&staffsThreads[i], NULL, intelligentStaffsWork, (void *)&staffs[i]);
+    }
+
+    for (int i = 0; i < N; i++)
+    {
+        newThread(&operativesThreads[i], NULL, operativesWork, &operatives[i]);
     }
 
     for (int i = 0; i < N; i++)
