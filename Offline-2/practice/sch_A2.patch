@@ -1,0 +1,201 @@
+diff --git a/Makefile b/Makefile
+index f8c820e..ccb6d86 100644
+--- a/Makefile
++++ b/Makefile
+@@ -139,6 +139,7 @@ UPROGS=\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
++	$U/_testloop\
+ 
+ fs.img: mkfs/mkfs README $(UPROGS)
+ 	mkfs/mkfs fs.img README $(UPROGS)
+@@ -160,7 +161,7 @@ QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
+ 	then echo "-gdb tcp::$(GDBPORT)"; \
+ 	else echo "-s -p $(GDBPORT)"; fi)
+ ifndef CPUS
+-CPUS := 3
++CPUS := 1
+ endif
+ 
+ QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 130d9ce..a504f1b 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -124,6 +124,7 @@ allocproc(void)
+ found:
+   p->pid = allocpid();
+   p->state = USED;
++  p->priority = 300;
+ 
+   // Allocate a trapframe page.
+   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+@@ -455,22 +456,32 @@ scheduler(void)
+     intr_on();
+ 
+     int found = 0;
+-    for(p = proc; p < &proc[NPROC]; p++) {
++    struct proc *highest_priority_proc = 0;
++    int max_priority = -1;
++
++    for(p=proc; p < &proc[NPROC]; p++){
+       acquire(&p->lock);
+-      if(p->state == RUNNABLE) {
+-        // Switch to chosen process.  It is the process's job
+-        // to release its lock and then reacquire it
+-        // before jumping back to us.
+-        p->state = RUNNING;
+-        c->proc = p;
+-        swtch(&c->context, &p->context);
+-
+-        // Process is done running for now.
+-        // It should have changed its p->state before coming back.
++
++      if(p->state == RUNNABLE && p->priority > max_priority){
++        highest_priority_proc = p;
++        max_priority = p->priority;
++      }
++      
++      release(&p->lock);
++    }
++
++    if(highest_priority_proc){
++      acquire(&highest_priority_proc->lock);
++
++      if(highest_priority_proc->state == RUNNABLE) {
++        highest_priority_proc->state = RUNNING;
++        c->proc = highest_priority_proc;
++        swtch(&c->context, &highest_priority_proc->context);
+         c->proc = 0;
+         found = 1;
+       }
+-      release(&p->lock);
++      
++      release(&highest_priority_proc->lock);
+     }
+     if(found == 0) {
+       // nothing to run; stop running on this core until an interrupt.
+diff --git a/kernel/proc.h b/kernel/proc.h
+index d021857..f36ebf2 100644
+--- a/kernel/proc.h
++++ b/kernel/proc.h
+@@ -104,4 +104,5 @@ struct proc {
+   struct file *ofile[NOFILE];  // Open files
+   struct inode *cwd;           // Current directory
+   char name[16];               // Process name (debugging)
++  int priority;             // Process priority
+ };
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index ed65409..5f14471 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -101,6 +101,7 @@ extern uint64 sys_unlink(void);
+ extern uint64 sys_link(void);
+ extern uint64 sys_mkdir(void);
+ extern uint64 sys_close(void);
++extern uint64 sys_setpriority(void);
+ 
+ // An array mapping syscall numbers from syscall.h
+ // to the function that handles the system call.
+@@ -126,6 +127,7 @@ static uint64 (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_setpriority]   sys_setpriority,
+ };
+ 
+ void
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index bc5f356..89453ae 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,3 +20,4 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_setpriority  22
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3b4d5bd..25bfbf0 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -91,3 +91,15 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++
++uint64
++sys_setpriority(void)
++{
++  struct proc *p = myproc();
++
++  int pr;
++  argint(0, &pr);
++
++  p->priority = pr;
++  return 0;
++}
+\ No newline at end of file
+diff --git a/user/testloop.c b/user/testloop.c
+new file mode 100644
+index 0000000..417de3e
+--- /dev/null
++++ b/user/testloop.c
+@@ -0,0 +1,29 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++#define BOLD_YELLOW "\033[1;33m"
++#define BOLD_RED "\033[1;31m"
++#define RESET "\033[0m"
++
++int main(int argc, char* argv[]){
++    int pid = getpid();
++    uint32 iters = atoi(argv[1]);
++    int priority = atoi(argv[2]);
++    setpriority(priority);
++    sleep(5); // to let the scheduler run and set the priority
++    int entry_time = uptime();
++    printf(BOLD_YELLOW"PID %d (%d): Starting %u iterations at time %d\n"RESET, pid, priority, iters, entry_time);
++    for(int i = 0; i < iters * 100; i++){
++        // do some dummy work
++        if(i%10 == 0) 
++        // printf("PID %d (%d): Iteration %d\n", pid, priority, i); // comment out this line if needed, this is only for testing
++        for(int j = 0; j < 50000000; j++){
++            int x = j * j;
++            x = x + 1;
++        }
++    }
++    int exit_time = uptime();
++    printf(BOLD_RED"PID %d (%d): Finished at time %d\n"RESET, pid, priority, exit_time);
++    exit(0);
++}
+\ No newline at end of file
+diff --git a/user/user.h b/user/user.h
+index f16fe27..9625e9f 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -41,3 +41,11 @@ void *memcpy(void *, const void *, uint);
+ // umalloc.c
+ void* malloc(uint);
+ void free(void*);
++
++int setpriority(int);
++/*
++testloop 150 8 &;
++testloop 200 10 &;
++testloop 100 15 &;
++testloop 90 8 &;
++*/
+\ No newline at end of file
+diff --git a/user/usys.pl b/user/usys.pl
+index 01e426e..b9848f6 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -36,3 +36,4 @@ entry("getpid");
+ entry("sbrk");
+ entry("sleep");
+ entry("uptime");
++entry("setpriority");
+\ No newline at end of file

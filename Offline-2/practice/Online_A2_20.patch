@@ -1,0 +1,216 @@
+diff --git a/Makefile b/Makefile
+index f8c820e..93cc102 100644
+--- a/Makefile
++++ b/Makefile
+@@ -139,6 +139,8 @@ UPROGS=\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
++	$U/_seed\
++	$U/_choice\
+ 
+ fs.img: mkfs/mkfs README $(UPROGS)
+ 	mkfs/mkfs fs.img README $(UPROGS)
+diff --git a/kernel/array.h b/kernel/array.h
+new file mode 100644
+index 0000000..2e4bb8e
+--- /dev/null
++++ b/kernel/array.h
+@@ -0,0 +1,4 @@
++struct array{
++  int len; // length of array
++  int array[15]; //array elements
++};
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index ed65409..1449ccc 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -101,6 +101,8 @@ extern uint64 sys_unlink(void);
+ extern uint64 sys_link(void);
+ extern uint64 sys_mkdir(void);
+ extern uint64 sys_close(void);
++extern uint64 sys_seed(void);
++extern uint64 sys_choice(void);
+ 
+ // An array mapping syscall numbers from syscall.h
+ // to the function that handles the system call.
+@@ -126,6 +128,8 @@ static uint64 (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_seed]    sys_seed,
++[SYS_choice]  sys_choice,
+ };
+ 
+ void
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index bc5f356..b3d54d4 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,3 +20,5 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_seed 22
++#define SYS_choice 23
+\ No newline at end of file
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3b4d5bd..7b8b9f4 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -5,6 +5,7 @@
+ #include "memlayout.h"
+ #include "spinlock.h"
+ #include "proc.h"
++#include "array.h"
+ 
+ uint64
+ sys_exit(void)
+@@ -91,3 +92,42 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++
++int seed = 0;
++
++uint64
++sys_seed(void)
++{
++  int s;
++  argint(0, &s);
++  if(s < 0)
++    return -1;
++  seed = s;
++  printf("Seed set to: %d\n", seed);
++  return 0;
++}
++
++uint64
++sys_choice(void)
++{
++  uint64 addr;
++
++  struct array arr;
++  argaddr(0, &addr);
++  copyin(myproc()->pagetable,(char *)&arr, addr, sizeof(arr));
++
++  int n = arr.len;
++  if(n <= 0 || n > 15)
++    return -1;
++    
++  printf("Array Len: %d\n",n);
++
++  // get random index
++  seed++;
++  int index = seed % n;
++
++  printf("Random Index: %d\n", index);
++
++  return arr.array[index];
++
++}
+diff --git a/user/choice.c b/user/choice.c
+new file mode 100644
+index 0000000..a22576d
+--- /dev/null
++++ b/user/choice.c
+@@ -0,0 +1,40 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++
++int main(int argc, char *argv[])
++{
++    if (argc < 2)
++    {
++        fprintf(2, "Usage: target <command>\n");
++        exit(1);
++    }
++
++    int arr_ln = atio(argv[1]);
++    int arr[15];
++
++    if(argc != arr_ln + 2)
++    {
++        fprintf(2, "Usage: target <command> <num1> <num2> ... <numN>\n");
++        exit(1);
++    }
++    
++    for(int i=0;i<arr_ln;i++)
++    {
++        arr[i] = atio(argv[i + 2]);
++    }
++
++    struct array arra;
++    arra.len = arr_ln;
++    for(int i=0;i<arr_ln;i++)
++    {
++        arra.array[i] = arr[i];
++    }
++    
++    printf("Sent to kernel");
++    int choice_result = choice(&arra);
++    printf("Choice result: %d\n", choice_result);
++
++    return 0;
++}
+diff --git a/user/seed.c b/user/seed.c
+new file mode 100644
+index 0000000..b347aab
+--- /dev/null
++++ b/user/seed.c
+@@ -0,0 +1,26 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++
++int main(int argc, char *argv[])
++{
++    if (argc != 2)
++    {
++        fprintf(2, "Usage: target <command>\n");
++        exit(1);
++    }
++
++    int seed_value = atoi(argv[1]);
++    if (seed_value < 0)
++    {
++        fprintf(2, "Seed must be a non-negative integer.\n");
++        exit(1);
++    }
++
++    seed(seed_value);
++    printf("User level seed sent to kernel: %d\n", seed_value);
++    
++
++    return 0;
++}
+diff --git a/user/user.h b/user/user.h
+index f16fe27..4e6c3d0 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -1,3 +1,4 @@
++#include "kernel/array.h"
+ struct stat;
+ 
+ // system calls
+@@ -41,3 +42,6 @@ void *memcpy(void *, const void *, uint);
+ // umalloc.c
+ void* malloc(uint);
+ void free(void*);
++
++int seed(int);
++int choice(struct array*);
+diff --git a/user/usys.pl b/user/usys.pl
+index 01e426e..3f09139 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -36,3 +36,5 @@ entry("getpid");
+ entry("sbrk");
+ entry("sleep");
+ entry("uptime");
++entry("seed");
++entry("choice");
+\ No newline at end of file

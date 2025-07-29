@@ -1,0 +1,180 @@
+diff --git a/Makefile b/Makefile
+index f8c820e..7e72ea5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -139,6 +139,8 @@ UPROGS=\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
++	$U/_usergetuid\
++	$U/_setuidusr\
+ 
+ fs.img: mkfs/mkfs README $(UPROGS)
+ 	mkfs/mkfs fs.img README $(UPROGS)
+diff --git a/kernel/defs.h b/kernel/defs.h
+index d1b6bb9..f26a08a 100644
+--- a/kernel/defs.h
++++ b/kernel/defs.h
+@@ -185,5 +185,8 @@ void            virtio_disk_init(void);
+ void            virtio_disk_rw(struct buf *, int);
+ void            virtio_disk_intr(void);
+ 
++int             getuid(void);
++void            setuid(int);
++
+ // number of elements in fixed-size array
+ #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 130d9ce..ea69c05 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -693,3 +693,17 @@ procdump(void)
+     printf("\n");
+   }
+ }
++//global uid variable
++int uid = 123;
++
++int
++getuid()
++{
++  return uid;
++}
++
++void
++setuid(int new_uid)
++{
++  uid = new_uid;
++}
+\ No newline at end of file
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index ed65409..1e74e64 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -101,6 +101,8 @@ extern uint64 sys_unlink(void);
+ extern uint64 sys_link(void);
+ extern uint64 sys_mkdir(void);
+ extern uint64 sys_close(void);
++extern uint64 sys_getuid(void);
++extern uint64 sys_setuid(void);
+ 
+ // An array mapping syscall numbers from syscall.h
+ // to the function that handles the system call.
+@@ -126,6 +128,8 @@ static uint64 (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_getuid]  sys_getuid,
++[SYS_setuid]  sys_setuid,
+ };
+ 
+ void
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index bc5f356..72b76f0 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,3 +20,5 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_getuid 22
++#define SYS_setuid 23
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3b4d5bd..923eaec 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -91,3 +91,22 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++// return user id
++uint64
++sys_getuid(void)
++{
++  return getuid();
++}
++
++uint64
++sys_setuid(void)
++{
++  int uid;
++  argint(0, &uid);
++  if (uid < 0) {
++    return -1; // Invalid UID
++  }
++
++  setuid(uid);
++  return 0; // Success
++}
+\ No newline at end of file
+diff --git a/user/setuidusr.c b/user/setuidusr.c
+new file mode 100644
+index 0000000..c1daad8
+--- /dev/null
++++ b/user/setuidusr.c
+@@ -0,0 +1,22 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++int main(int agrc, char *argv[])
++{
++    if(agrc != 2) {
++        printf("Usage: setuidusr <uid>\n");
++        exit(1);
++    }
++
++    int uid = atoi(argv[1]);
++
++    if(uid < 0) {
++        printf("Invalid uid: %s\n", argv[1]);
++        exit(1);
++    }
++    
++    setuid(uid);
++
++    return 0;
++}
+diff --git a/user/user.h b/user/user.h
+index f16fe27..a6e372b 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -41,3 +41,6 @@ void *memcpy(void *, const void *, uint);
+ // umalloc.c
+ void* malloc(uint);
+ void free(void*);
++
++int getuid(void);
++void setuid(int uid);
+diff --git a/user/usergetuid.c b/user/usergetuid.c
+new file mode 100644
+index 0000000..c5cffbf
+--- /dev/null
++++ b/user/usergetuid.c
+@@ -0,0 +1,15 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++
++int main()
++{
++   int uid = getuid();
++
++
++   printf("%d\n", uid);
++
++
++   return 0;
++}
+diff --git a/user/usys.pl b/user/usys.pl
+index 01e426e..88cb7a4 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -36,3 +36,6 @@ entry("getpid");
+ entry("sbrk");
+ entry("sleep");
+ entry("uptime");
++entry("getuid");
++entry("setuid");
++

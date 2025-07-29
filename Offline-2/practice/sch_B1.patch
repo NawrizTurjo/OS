@@ -1,0 +1,121 @@
+diff --git a/Makefile b/Makefile
+index f8c820e..ccb6d86 100644
+--- a/Makefile
++++ b/Makefile
+@@ -139,6 +139,7 @@ UPROGS=\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
++	$U/_testloop\
+ 
+ fs.img: mkfs/mkfs README $(UPROGS)
+ 	mkfs/mkfs fs.img README $(UPROGS)
+@@ -160,7 +161,7 @@ QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
+ 	then echo "-gdb tcp::$(GDBPORT)"; \
+ 	else echo "-s -p $(GDBPORT)"; fi)
+ ifndef CPUS
+-CPUS := 3
++CPUS := 1
+ endif
+ 
+ QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 130d9ce..abf0270 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -124,6 +124,9 @@ allocproc(void)
+ found:
+   p->pid = allocpid();
+   p->state = USED;
++  acquire(&tickslock);
++  p->entry_time = ticks; // record entry time
++  release(&tickslock);
+ 
+   // Allocate a trapframe page.
+   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+@@ -455,9 +458,36 @@ scheduler(void)
+     intr_on();
+ 
+     int found = 0;
+-    for(p = proc; p < &proc[NPROC]; p++) {
++    struct proc *earliest = 0;
++    for(p=proc; p < &proc[NPROC]; p++){
+       acquire(&p->lock);
+-      if(p->state == RUNNABLE) {
++      if(p->pid<=2)
++      {
++        release(&p->lock);
++        continue;
++      }
++      else if(p->state==RUNNABLE){
++        if(earliest == 0 || p->entry_time < earliest->entry_time) {
++          earliest = p;
++        }
++        found = 1;
++      }
++      release(&p->lock);
++    }
++    if(earliest) {
++      acquire(&earliest->lock);
++      while(earliest->state == RUNNABLE) {
++        earliest->state = RUNNING;
++        c->proc = earliest;
++        swtch(&c->context, &earliest->context);
++        c->proc = 0;
++      }
++      release(&earliest->lock);
++    }
++    else{
++      for(p = proc; p < &proc[NPROC]; p++) {
++      acquire(&p->lock);
++      if(p->state == RUNNABLE && p->pid <= 2) {
+         // Switch to chosen process.  It is the process's job
+         // to release its lock and then reacquire it
+         // before jumping back to us.
+@@ -472,6 +502,7 @@ scheduler(void)
+       }
+       release(&p->lock);
+     }
++    }
+     if(found == 0) {
+       // nothing to run; stop running on this core until an interrupt.
+       intr_on();
+diff --git a/kernel/proc.h b/kernel/proc.h
+index d021857..487fc57 100644
+--- a/kernel/proc.h
++++ b/kernel/proc.h
+@@ -104,4 +104,5 @@ struct proc {
+   struct file *ofile[NOFILE];  // Open files
+   struct inode *cwd;           // Current directory
+   char name[16];               // Process name (debugging)
+-};
++  uint32 entry_time;
++};
+\ No newline at end of file
+diff --git a/user/testloop.c b/user/testloop.c
+new file mode 100644
+index 0000000..3b6a8ff
+--- /dev/null
++++ b/user/testloop.c
+@@ -0,0 +1,20 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++int main(int argc, char* argv[]){
++    int pid = getpid();
++    int entry_time = uptime();
++    uint32 iters = atoi(argv[1]);
++    printf("Process %d: Starting %u iterations at time %d\n", pid, iters, entry_time);
++    for(int i = 0; i < iters; i++){
++        // do some dummy work
++        for(int j = 0; j < 50000000; j++){
++            int x = j * j;
++            x = x + 1;
++        }
++    }
++    int exit_time = uptime();
++    printf("Process %d: Finished at time %d\n", pid, exit_time);
++    exit(0);
++}
+\ No newline at end of file

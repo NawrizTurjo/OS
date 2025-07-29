@@ -1,0 +1,184 @@
+diff --git a/Makefile b/Makefile
+index f8c820e..38b7adf 100644
+--- a/Makefile
++++ b/Makefile
+@@ -139,6 +139,8 @@ UPROGS=\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
++	$U/_seed\
++	$U/_randnum\
+ 
+ fs.img: mkfs/mkfs README $(UPROGS)
+ 	mkfs/mkfs fs.img README $(UPROGS)
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index ed65409..1d2ead6 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -101,6 +101,8 @@ extern uint64 sys_unlink(void);
+ extern uint64 sys_link(void);
+ extern uint64 sys_mkdir(void);
+ extern uint64 sys_close(void);
++extern uint64 sys_setseed(void);
++extern uint64 sys_getrandomnum(void);
+ 
+ // An array mapping syscall numbers from syscall.h
+ // to the function that handles the system call.
+@@ -126,6 +128,8 @@ static uint64 (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_setseed] sys_setseed,
++[SYS_getrandomnum] sys_getrandomnum,
+ };
+ 
+ void
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index bc5f356..d86a95e 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,3 +20,5 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_setseed 22
++#define SYS_getrandomnum 23
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3b4d5bd..7093fe3 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -91,3 +91,43 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++
++int seed = 0;
++
++uint64
++sys_setseed(void)
++{
++  int s;
++  argint(0, &s);
++  if(s<0)
++  {
++    return -1;
++  }
++  seed = s;
++  return 0;
++}
++
++uint64
++sys_getrandomnum(void)
++{
++  int n;
++  int arr[15];
++
++  uint64 addr;
++
++  argint(0, &n);
++  argaddr(1, &addr);
++  if(n < 0 || n > 15 || addr == 0)
++  {
++    return -1;
++  }
++
++  for(int i = 0; i < n; i++)
++  {
++    arr[i] = ++seed;
++  }
++
++  if(copyout(myproc()->pagetable,addr, (char *)arr, sizeof(arr))<0)
++    return -1;
++  return 0;
++}
+\ No newline at end of file
+diff --git a/user/randnum.c b/user/randnum.c
+new file mode 100644
+index 0000000..f6faf11
+--- /dev/null
++++ b/user/randnum.c
+@@ -0,0 +1,35 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++int main(int argc, char *argv[])
++{
++    if (argc != 2)
++    {
++        fprintf(2, "Usage: seed <number>\n");
++        return 1;
++    }
++
++    int n = atoi(argv[1]);
++    int *arr = malloc(n * sizeof(int));
++    if(getrandomnum(n, arr) < 0)
++    {
++        fprintf(2, "Error: Invalid input or memory allocation failed.\n");
++        free(arr);
++        return 1;
++    }
++
++    printf("Next random numbers are [");
++    for(int i=0;i<n;i++)
++    {
++        printf("%d", arr[i]);
++        if(i!=n-1)
++        {
++            printf(", ");
++        }
++    }
++    printf("]\n");
++    
++    free(arr);
++    return 0;
++}
+diff --git a/user/seed.c b/user/seed.c
+new file mode 100644
+index 0000000..2d9331b
+--- /dev/null
++++ b/user/seed.c
+@@ -0,0 +1,21 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++int main(int argc, char *argv[])
++{
++    if (argc != 2)
++    {
++        fprintf(2, "Usage: seed <number>\n");
++        return 1;
++    }
++
++    int s = atoi(argv[1]);
++    if (setseed(s) < 0)
++    {
++        fprintf(2, "Error: Seed must be a non-negative integer.\n");
++        return 1;
++    }
++    printf("Seed set to %d\n", s);
++    return 0;
++}
+diff --git a/user/user.h b/user/user.h
+index f16fe27..d6c5fb0 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -41,3 +41,6 @@ void *memcpy(void *, const void *, uint);
+ // umalloc.c
+ void* malloc(uint);
+ void free(void*);
++
++int setseed(int);
++int getrandomnum(int, int*);
+diff --git a/user/usys.pl b/user/usys.pl
+index 01e426e..9ac5aa5 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -36,3 +36,5 @@ entry("getpid");
+ entry("sbrk");
+ entry("sleep");
+ entry("uptime");
++entry("setseed");
++entry("getrandomnum");
+\ No newline at end of file
